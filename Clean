@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบบันทึกการทำความสะอาดห้องน้ำ</title>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; font-family: 'Prompt', sans-serif; }
+        body { background-color: #eef2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .card { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.06); width: 100%; max-width: 480px; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .header h2 { color: #2e7d32; margin: 0; font-size: 24px; }
+        .header p { color: #666; font-size: 13px; margin-top: 4px; }
+        .dashboard-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 20px; }
+        .dashboard-box h3 { margin: 0 0 10px 0; font-size: 15px; color: #334155; }
+        .status-list { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+        .status-item { display: flex; justify-content: space-between; align-items: center; background: white; padding: 8px 12px; border-radius: 8px; font-size: 13px; border-left: 4px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .status-item.cleaned { border-left-color: #2e7d32; }
+        .status-item.cleaning { border-left-color: #fbc02d; }
+        .status-item.issue { border-left-color: #d32f2f; }
+        .status-info { display: flex; flex-direction: column; }
+        .status-location { font-weight: 600; color: #1e293b; }
+        .status-time { font-size: 11px; color: #64748b; }
+        .status-badge { font-weight: 600; font-size: 12px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; color: #333; font-size: 14px; }
+        select, input { width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; outline: none; }
+        select:focus, input:focus { border-color: #2e7d32; }
+        .btn-submit { width: 100%; background-color: #2e7d32; color: white; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 15px; transition: 0.3s; }
+        .btn-submit:hover { background-color: #1b5e20; }
+        #statusMessage { margin-top: 15px; text-align: center; font-size: 14px; font-weight: 600; }
+        .success { color: #2e7d32; }
+        .error { color: #d32f2f; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header">
+        <h2>🧼 ระบบบันทึกสำหรับแม่บ้าน</h2>
+        <p>อัปเดตสถานะทำความสะอาด / แจ้งห้องน้ำชำรุด</p>
+    </div>
+
+    <div class="dashboard-box">
+        <h3>📊 สถานะห้องน้ำวันนี้</h3>
+        <div class="status-list" id="dashboardList"></div>
+    </div>
+
+    <form id="cleanForm">
+        <div class="form-group">
+            <label for="reporter">ชื่อแม่บ้าน / ผู้บันทึก:</label>
+            <input type="text" id="reporter" placeholder="เช่น แม่บ้านสมศรี" required>
+        </div>
+
+        <div class="form-group">
+            <label for="location">เลือกห้องน้ำ:</label>
+            <select id="location" required></select>
+        </div>
+
+        <div class="form-group">
+            <label for="status">อัปเดตสถานะ:</label>
+            <select id="status" required>
+                <option value="🟢|ทำความสะอาดแล้ว พร้อมใช้งาน">🟢 ทำความสะอาดเรียบร้อย (พร้อมใช้)</option>
+                <option value="🟡|กำลังเข้าทำความสะอาด">🟡 กำลังเข้าทำความสะอาด</option>
+                <option value="🔴|ห้องน้ำชำรุด งดใช้งาน/รอช่าง">🔴 ห้องน้ำชำรุด / งดใช้งาน</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="customRemark">หมายเหตุเพิ่มเติม (ถ้ามี):</label>
+            <input type="text" id="customRemark" placeholder="เช่น เติมสบู่เรียบร้อย, รอช่างซ่อมท่อ">
+        </div>
+
+        <button type="button" class="btn-submit" onclick="sendToTelegram()">อัปเดตสถานะห้องน้ำ</button>
+    </form>
+
+    <div id="statusMessage"></div>
+</div>
+
+<script>
+    const BOT_TOKEN = "8715068421:AAH9dcq6QEaMrIQ2QyAtkpzaiLsuJdV4zTg"; 
+    const CHAT_ID = "7043331377";               
+
+    const locations = [
+        "ห้องน้ำชายโรงอาหาร", "ห้องน้ำหญิงโรงอาหาร",
+        "ห้องน้ำชายหลวงตาบุญชื่น", "ห้องน้ำหญิงหลวงตาบุญชื่น",
+        "ห้องน้ำชายข้างหอประชุม", "ห้องน้ำชายอาคาร3",
+        "ห้องน้ำหญิงอาคาร3", "ห้องน้ำครูอาคาร2ฝั่งตะวันตก",
+        "ห้องน้ำครูอาคาร2ฝั่งตะวันออก", "ห้องน้ำครูอาคาร1",
+        "ห้องน้ำครูอาคาร4", "ห้องน้ำชายอาคาร4",
+        "ห้องน้ำหญิงอาคาร4", "ห้องน้ำห้องกิจการ"
+    ];
+
+    function initLocationSelect() {
+        const select = document.getElementById("location");
+        locations.forEach((loc) => {
+            const opt = document.createElement("option");
+            opt.value = loc;
+            opt.textContent = loc;
+            select.appendChild(opt);
+        });
+    }
+
+    function renderDashboard() {
+        const dashboardList = document.getElementById("dashboardList");
+        dashboardList.innerHTML = "";
+        const savedData = JSON.parse(localStorage.getItem("restroomStatus")) || {};
+
+        locations.forEach(loc => {
+            const data = savedData[loc] || {
+                icon: "⚪",
+                text: "ยังไม่ได้ทำความสะอาด",
+                time: "-",
+                reporter: "-",
+                type: "pending"
+            };
+
+            const item = document.createElement("div");
+            item.className = `status-item ${data.type}`;
+            item.innerHTML = `
+                <div class="status-info">
+                    <span class="status-location">${loc}</span>
+                    <span class="status-time">อัปเดต: ${data.time} (${data.reporter})</span>
+                </div>
+                <span class="status-badge">${data.icon} ${data.text}</span>
+            `;
+            dashboardList.appendChild(item);
+        });
+    }
+
+    function updateLocalStatus(location, icon, statusText, reporter, timeString) {
+        const savedData = JSON.parse(localStorage.getItem("restroomStatus")) || {};
+        let type = "pending";
+        if (icon === "🟢") type = "cleaned";
+        else if (icon === "🟡") type = "cleaning";
+        else if (icon === "🔴") type = "issue";
+
+        savedData[location] = { icon, text: statusText, time: timeString, reporter, type };
+        localStorage.setItem("restroomStatus", JSON.stringify(savedData));
+        renderDashboard();
+    }
+
+    async function sendToTelegram() {
+        const reporter = document.getElementById("reporter").value.trim() || "แม่บ้าน";
+        const locationName = document.getElementById("location").value;
+        const statusValue = document.getElementById("status").value;
+        const [icon, statusText] = statusValue.split("|");
+        const customRemark = document.getElementById("customRemark").value.trim() || "ไม่มี";
+
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + " น.";
+
+        const messageText = `${icon} *รายงานการดูแลห้องน้ำ (แม่บ้าน)*\n` +
+                            `📍 *สถานที่:* ${locationName}\n` +
+                            `📌 *สถานะ:* ${statusText}\n` +
+                            `📝 *หมายเหตุ:* ${customRemark}\n` +
+                            `👤 *ผู้ดูแล:* ${reporter}\n` +
+                            `⏰ *เวลา:* ${timeString}`;
+
+        const statusDiv = document.getElementById("statusMessage");
+        statusDiv.className = "";
+        statusDiv.innerText = "กำลังอัปเดต...";
+
+        try {
+            const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+            const response = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    chat_id: CHAT_ID,
+                    text: messageText,
+                    parse_mode: "Markdown"
+                })
+            });
+            const data = await response.json();
+
+            if (data.ok) {
+                updateLocalStatus(locationName, icon, statusText, reporter, timeString);
+                statusDiv.className = "success";
+                statusDiv.innerText = "✅ อัปเดตสถานะสำเร็จ!";
+                document.getElementById("customRemark").value = "";
+            } else {
+                statusDiv.className = "error";
+                statusDiv.innerText = "❌ ไม่สามารถอัปเดตข้อมูลได้";
+            }
+        } catch (error) {
+            statusDiv.className = "error";
+            statusDiv.innerText = "❌ เกิดข้อผิดพลาดในการเชื่อมต่อ";
+        }
+    }
+
+    function checkDailyResetSchedule() {
+        const now = new Date();
+        if (now.getHours() >= 16) {
+            const todayStr = now.toISOString().split('T')[0];
+            if (localStorage.getItem("lastResetDate") !== todayStr) {
+                const savedData = JSON.parse(localStorage.getItem("restroomStatus")) || {};
+                let uncleanedList = [];
+
+                locations.forEach(loc => {
+                    if (!savedData[loc] || savedData[loc].icon !== "🟢") {
+                        uncleanedList.push(loc);
+                    }
+                });
+
+                if (uncleanedList.length > 0) {
+                    let alertMsg = `⚠️ *แจ้งเตือนประจำวัน (16:00 น.)*\nห้องน้ำที่ *ยังไม่ได้ทำความสะอาด/ชำรุด* ดังนี้:\n\n`;
+                    uncleanedList.forEach((loc, idx) => alertMsg += `${idx + 1}. ${loc}\n`);
+                    
+                    fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ chat_id: CHAT_ID, text: alertMsg, parse_mode: "Markdown" })
+                    });
+                }
+                localStorage.setItem("lastResetDate", todayStr);
+            }
+        }
+    }
+
+    window.onload = () => {
+        initLocationSelect();
+        renderDashboard();
+        setInterval(checkDailyResetSchedule, 10000);
+    };
+</script>
+
+</body>
+</html>
